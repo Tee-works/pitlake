@@ -1,0 +1,39 @@
+name: Nightly
+
+# Things that should not block a pull request but must not go unnoticed.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  sec-contract:
+    # Fails if the SEC changes its API format, before it breaks the morning pipeline.
+    runs-on: ubuntu-latest
+    env:
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Contact for the SEC is configured
+        run: |
+          if [ -z "$SEC_USER_AGENT" ]; then
+            echo "::error::Set the repository variable SEC_USER_AGENT (Settings > Secrets and variables > Actions > Variables), e.g. 'Your Name you@example.com'"
+            exit 1
+          fi
+      - run: pytest -m live -v
+
+  dependency-audit:
+    # New CVEs are published every day, even when our code does not change.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . pip-audit
+      - run: pip-audit --skip-editable

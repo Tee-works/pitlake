@@ -1,0 +1,32 @@
+name: Data request
+description: Ask for a new dataset, metric, field or change
+labels: ["request"]
+body:
+  - type: input
+    id: team
+    attributes:
+      label: Team and requester
+    validations: {required: true}
+  - type: textarea
+    id: decision
+    attributes:
+      label: What decision or workflow does this support?
+      description: The outcome you need, not the implementation.
+    validations: {required: true}
+  - type: textarea
+    id: cost_of_delay
+    attributes:
+      label: What breaks, and by when, if this waits a day? A week?
+      description: Used to prioritise between teams. "A live investment decision on Friday" ranks above "a nicer dashboard".
+    validations: {required: true}
+  - type: dropdown
+    id: shared
+    attributes:
+      label: Would this change numbers other teams already use?
+      options: ["No, it is new", "Yes, it changes a shared dataset", "Not sure"]
+    validations: {required: true}
+  - type: textarea
+    id: done
+    attributes:
+      label: How will we know it is right?
+      description: e.g. "Matches the 10-K for NVDA FY2026" or an example you already trust.

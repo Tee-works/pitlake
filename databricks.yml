@@ -1,0 +1,72 @@
+# Databricks Asset Bundle: the production deployment of pitlake as a Databricks job.
+#
+#   databricks bundle validate -t staging
+#   databricks bundle deploy   -t staging     # CD does this on every merge to main
+#   databricks bundle run pitlake_daily -t staging
+#
+# The job runs the same `pitlake ingest` entry point as the CLI, Airflow DAG and Docker image.
+# Delta tables go to a Unity Catalog volume so they can be registered and governed in UC.
+bundle:
+  name: pitlake
+
+artifacts:
+  pitlake_wheel:
+    type: whl
+    build: python -m build --wheel
+    path: .
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding the pitlake schema and volume
+  lake_root:
+    description: Where the Delta tables live
+    default: /Volumes/${var.catalog}/pitlake/lake
+  sec_user_agent:
+    description: Contact required by the SEC fair-access policy, e.g. "Data Platform data@company.com"
+  alert_email:
+    description: Who hears about failed runs
+
+resources:
+  jobs:
+    pitlake_daily:
+      name: pitlake_daily
+      description: Daily point-in-time refresh of SEC fundamentals (see README).
+      max_concurrent_runs: 1 # runs commit to the same Delta tables
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON-FRI"
+        timezone_id: UTC
+      email_notifications:
+        on_failure: ["${var.alert_email}"]
+      tasks:
+        - task_key: ingest
+          environment_key: default
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          python_wheel_task:
+            package_name: pitlake
+            entry_point: pitlake
+            parameters:
+              - --lake
+              - ${var.lake_root}
+              - ingest
+              - --source
+              - sec
+              - --sec-user-agent
+              - ${var.sec_user_agent}
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - ./dist/*.whl
+
+targets:
+  staging:
+    mode: development
+    default: true
+    variables:
+      catalog: research_staging
+  prod:
+    mode: production
+    variables:
+      catalog: research

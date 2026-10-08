@@ -1,0 +1,22 @@
+# Local stand-in for production: a one-shot ingest job, then the API on the same data.
+#   docker compose up --build        -> http://localhost:8000
+# For live SEC data: SOURCE=sec SEC_USER_AGENT="Name you@example.com" docker compose up
+services:
+  ingest:
+    build: .
+    command: ["pitlake", "ingest", "--source", "${SOURCE:-sample}"]
+    environment:
+      SEC_USER_AGENT: ${SEC_USER_AGENT:-}
+      PITLAKE_SLACK_WEBHOOK: ${PITLAKE_SLACK_WEBHOOK:-}
+    volumes: [lake:/data]
+
+  api:
+    build: .
+    depends_on:
+      ingest:
+        condition: service_completed_successfully
+    ports: ["${PORT:-8000}:8000"]
+    volumes: [lake:/data]
+
+volumes:
+  lake:

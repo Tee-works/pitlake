@@ -1,0 +1,17 @@
+# Alternative data: developer activity on GitHub.
+#
+# BIT Capital lists "developer activity" among the alternative data it uses. For platform
+# companies, activity in their flagship open-source projects is a public signal of ecosystem
+# momentum (e.g. Nvidia's CUDA libraries, Meta's PyTorch).
+#
+# Point-in-time rule: a value is known from the day pitlake collected it. History fetched on
+# the first run is stamped with that day, not the week it describes, so a backtest can never
+# use "backfilled" history it would not have had at the time.
+
+[github]
+# Weekly commit counts per repository (GitHub's commit-activity statistics, last 52 weeks).
+[github.repos]
+NVDA = ["NVIDIA/cccl", "NVIDIA/cutlass"]
+META = ["pytorch/pytorch"]  # React moved out of Meta to an independent foundation
+MSFT = ["microsoft/vscode", "microsoft/TypeScript"]
+AMZN = ["aws/aws-cdk"]

@@ -1,0 +1,17 @@
+# Gate 3 - cross-dataset reconciliation with trueset `value_parity`:
+# the value we publish for every fact must equal the latest accepted value in the source log.
+# Catches bugs in the versioning logic itself, not just bad input.
+gate: reconciliation
+suites:
+  - suite: published_matches_source
+    dataset: facts_current
+    references:
+      source: observations_latest
+    checks:
+      - type: row_count_parity
+        reference: source
+        tolerance: 0.0
+      - type: value_parity
+        key: fact_key
+        columns: [value]
+        reference: source

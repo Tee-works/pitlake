@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Unit, data-quality and integration tests
+        run: pytest --cov=pitlake --cov-report=term-missing --cov-fail-under=85
+
+  airflow:
+    # The DAG is tested in real Airflow (pinned with Airflow's official constraints), not mocked.
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_VERSION: "3.3.2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: >
+          pip install "apache-airflow==${AIRFLOW_VERSION}"
+          --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-3.12.txt"
+      - run: pip install -e . pytest
+      - name: DAG structure + end-to-end `airflow dags test` on the sample
+        run: pytest tests/test_dag.py
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e . pip-audit
+      - name: Known vulnerabilities in dependencies
+        run: pip-audit --skip-editable
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and run ingest + API exactly as in production
+        run: docker compose up --build -d
+      - name: API is healthy and serving the ingested data
+        run: |
+          for _ in $(seq 1 30); do curl -fs localhost:8000/health && break; sleep 2; done
+          curl -fs localhost:8000/api/companies | grep -q '"ticker":"NVDA"'
+          docker compose logs ingest | grep -q "succeeded"
+      - if: always()
+        run: docker compose down -v
+
+  pipeline-smoke:
+    # Runs the real pipeline on the committed SEC sample, then checks every trueset gate
+    # passed. A change that breaks the data contract fails here, before review.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - run: pitlake ingest
+      - run: pitlake ingest   # second run must be a no-op (idempotency)
+      - name: All data-quality gates passed
+        run: |
+          python - <<'PY'
+          from pitlake.config import data_dir
+          from pitlake.lake import Lake
+          con = Lake(data_dir() / "lake").connect()
+          bad = con.execute(
+              "SELECT gate, suite, \"check\", message FROM dq_results "
+              "WHERE status <> 'pass' AND severity = 'error'"
+          ).fetchall()
+          runs = con.execute("SELECT status, message FROM pipeline_runs ORDER BY started_at").fetchall()
+          print(*runs, sep="\n")
+          assert not bad, bad
+          assert [s for s, _ in runs] == ["succeeded", "succeeded"], runs
+          assert "0 new facts, 0 restatements" in runs[-1][1], "re-run was not idempotent"
+          PY

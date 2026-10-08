@@ -1,0 +1,65 @@
+# Gate 1 - runs on every incoming batch BEFORE anything is written.
+# Any `error` failure rejects the whole batch; `warn` is recorded but does not block.
+# Views (see pitlake/quality.py): batch_observations_dq = the batch plus derived columns;
+# batch_filings_dq / batch_developer_activity_dq = the same, per source.
+gate: pre_publish
+suites:
+  - suite: observation_batch          # rules every source must follow
+    dataset: batch_observations_dq
+    checks:
+      - type: columns_exist
+        columns: [fact_key, ticker, taxonomy, concept, unit, period_end, value, accn, filed]
+      - type: row_count
+        min: 1
+      - {type: not_null, column: ticker}
+      - {type: not_null, column: concept}
+      - {type: not_null, column: period_end}
+      - {type: not_null, column: value}
+      - {type: not_null, column: accn}
+      - {type: not_null, column: filed}
+      - type: in_set
+        column: taxonomy
+        values: [us-gaap, ifrs-full, github]
+      - type: matches_regex
+        column: ticker
+        pattern: '[A-Z][A-Z.\-]{0,9}'
+      - type: in_set                # unit fits the metric: currency, currency/shares, shares
+        column: unit_matches_config
+        values: [true]
+      - type: in_range              # a period cannot end before it starts
+        column: period_days
+        min: 1
+      - type: in_range              # values are known only after the period ends
+        column: filing_lag_days
+        min: 0
+      - type: in_range              # nothing known in the future
+        column: days_filed_in_future
+        max: 0
+
+  - suite: sec_filings
+    dataset: batch_filings_dq
+    checks:
+      - type: matches_regex         # SEC accession number, e.g. 0000320193-20-000096
+        column: accn
+        pattern: '\d{10}-\d{2}-\d{6}'
+      # warn, not error: an unexpected form type is surfaced for review but does not block.
+      # (This is how proxy statements, DEF 14A, were first spotted and then allowed.)
+      - type: in_set
+        column: form
+        values: [10-K, 10-Q, 10-K/A, 10-Q/A, 10-KT, 10-KT/A, 8-K, 8-K/A, 20-F, 20-F/A, 40-F,
+                 6-K, 6-K/A, S-1, S-1/A, S-4, S-4/A, DEF 14A]
+        severity: warn
+
+  - suite: developer_activity
+    dataset: batch_developer_activity_dq
+    checks:
+      - type: matches_regex         # one vintage per collection day
+        column: accn
+        pattern: 'gh-\d{4}-\d{2}-\d{2}'
+      - type: in_range              # GitHub reports whole weeks
+        column: period_days
+        min: 7
+        max: 7
+      - type: in_range
+        column: value
+        min: 0

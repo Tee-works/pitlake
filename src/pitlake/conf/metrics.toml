@@ -1,0 +1,76 @@
+# Curated metrics: which SEC XBRL concepts feed each business metric.
+#
+# Two accounting standards are supported:
+#   concepts       - US GAAP (taxonomy "us-gaap"): US filers, e.g. Amazon, Nvidia, Micron
+#   ifrs_concepts  - IFRS (taxonomy "ifrs-full"): foreign filers, e.g. TSMC; IREN until 2025
+#
+# kind:
+#   flow      - duration value, additive across quarters (Q4 can be derived as FY - Q1..Q3)
+#   per_share - duration value, NOT additive (EPS); split-sensitive
+#   shares    - duration share counts (weighted average); not additive; split-sensitive
+#   instant   - balance-sheet value at a point in time
+#
+# Units follow the kind: money is in the company's reporting currency (USD, TWD, ...),
+# per-share values in currency/shares, share counts in shares.
+#
+# Concepts are listed in priority order: companies switch tags over time (e.g. SalesRevenueNet
+# -> RevenueFromContractWithCustomerExcludingAssessedTax after ASC 606), and when two tags
+# exist for the same period the first one listed wins. US GAAP tags rank before IFRS ones.
+
+[metrics.revenue]
+label = "Revenue"
+kind = "flow"
+concepts = [
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+]
+ifrs_concepts = ["Revenue", "RevenueFromContractsWithCustomers"]
+
+[metrics.operating_income]
+label = "Operating income"
+kind = "flow"
+concepts = ["OperatingIncomeLoss"]
+ifrs_concepts = ["ProfitLossFromOperatingActivities"]
+
+[metrics.net_income]
+label = "Net income"
+kind = "flow"
+concepts = ["NetIncomeLoss"]
+ifrs_concepts = ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"]
+
+[metrics.rnd_expense]
+label = "R&D expense"
+kind = "flow"
+concepts = ["ResearchAndDevelopmentExpense"]
+ifrs_concepts = ["ResearchAndDevelopmentExpense"]
+
+[metrics.eps_diluted]
+label = "Diluted EPS"
+kind = "per_share"
+concepts = ["EarningsPerShareDiluted"]
+ifrs_concepts = ["DilutedEarningsLossPerShare"]
+
+[metrics.diluted_shares]
+label = "Diluted weighted-average shares"
+kind = "shares"
+concepts = ["WeightedAverageNumberOfDilutedSharesOutstanding"]
+ifrs_concepts = ["AdjustedWeightedAverageShares"]
+
+[metrics.cash]
+label = "Cash and cash equivalents"
+kind = "instant"
+concepts = ["CashAndCashEquivalentsAtCarryingValue"]
+ifrs_concepts = ["CashAndCashEquivalents"]
+
+[metrics.total_assets]
+label = "Total assets"
+kind = "instant"
+concepts = ["Assets"]
+ifrs_concepts = ["Assets"]
+
+[metrics.stockholders_equity]
+label = "Stockholders' equity"
+kind = "instant"
+concepts = ["StockholdersEquity"]
+ifrs_concepts = ["EquityAttributableToOwnersOfParent", "Equity"]

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pitlake · company financials as known on any date</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1c1c1a; --muted: #62625d; --line: #e4e4df;
+    --accent: #0f5e9c; --warn-bg: #fff4e0; --warn-ink: #8a5300; --split-bg: #e8f1fb;
+    --split-ink: #0f5e9c; --fix-bg: #efe8fb; --fix-ink: #5b2ea6; --changed: #fff8d6;
+    --ok: #1d7a46;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  header { padding: 20px 24px 8px; max-width: 1180px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 24px 40px; display: grid; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  h2 { margin: 0 0 4px; font-size: 17px; }
+  .hint { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 14px; }
+  label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  select, input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  td.num { white-space: nowrap; }
+  #compare tr:not(.explain) td:first-child { white-space: nowrap; }
+  tr.changed td { background: var(--changed); }
+  tr.changed:not(.explain) td { border-bottom: none; }
+  tr.explain td { padding-top: 0; }
+  .headline { font-weight: 600; }
+  .guidance { margin-top: 2px; }
+  .small { font-size: 13px; color: var(--muted); }
+  a.small { color: var(--accent); }
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip.restatement { background: var(--warn-bg); color: var(--warn-ink); }
+  .chip.split_adjustment { background: var(--split-bg); color: var(--split-ink); }
+  .chip.manual_correction { background: var(--fix-bg); color: var(--fix-ink); }
+  .feed { display: grid; gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; }
+  .card .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .stats { display: flex; gap: 26px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+  .stats b { color: var(--ink); font-size: 19px; display: block; }
+  .stats b.ok { color: var(--ok); }
+  .empty { color: var(--muted); font-style: italic; }
+  .scroll { overflow-x: auto; }
+  details { font-size: 14px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  details ul, details dl { margin: 8px 0 0; padding-left: 18px; }
+  details dt { font-weight: 600; margin-top: 6px; }
+  details dd { margin: 0; color: var(--muted); }
+  @media (max-width: 640px) { header, main { padding-left: 16px; padding-right: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Company financials, as they were known on any date</h1>
+  <p>Numbers from companies' official SEC filings, plus developer activity from GitHub. When a number that was already published changes, you see the old number, the new one, and why.</p>
+</header>
+<main>
+  <section id="stats-section">
+    <div class="stats" id="stats"><span class="empty">Loading…</span></div>
+  </section>
+
+  <section id="howto">
+    <details open>
+      <summary>How to read this page</summary>
+      <ul>
+        <li><b>"Known on" a date</b> shows a number exactly as it had been published by that date, before any later revisions. This is what a report or model built on that day would have used.</li>
+        <li><b>Yellow rows</b> are numbers that changed between the two dates you pick. Each one says what happened and what it means for you.</li>
+        <li>Old numbers are never deleted. Every number links to the SEC filing it came from.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="compare-section">
+    <h2>What did we know, and when?</h2>
+    <p class="hint">Pick a company, a number and two dates to see what changed in between.</p>
+    <div class="controls">
+      <label>Company <select id="ticker"></select></label>
+      <label>Number <select id="metric"></select></label>
+      <label>Period <select id="ptype">
+        <option value="annual">Full years</option>
+        <option value="quarter">Quarters</option>
+        <option value="instant">Balance sheet dates</option>
+      </select></label>
+      <label>Known on <input type="date" id="before" value="2024-06-01"></label>
+      <label>Compared with <input type="date" id="after"></label>
+    </div>
+    <div class="scroll"><table id="compare"></table></div>
+  </section>
+
+  <section id="changes">
+    <h2>Recent changes to published numbers</h2>
+    <p class="hint">Every time a company changed a number it had already published, newest first.</p>
+    <div class="controls">
+      <label>Company <select id="feedTicker"><option value="">All companies</option></select></label>
+      <label>Type of change <select id="feedType">
+        <option value="">All</option>
+        <option value="restatement">Revised by the company</option>
+        <option value="split_adjustment">Stock split</option>
+        <option value="manual_correction">Corrected by our data team</option>
+        <option value="data_revision">Alternative data revised</option>
+      </select></label>
+      <label>Only changes larger than <select id="feedPct">
+        <option value="0">Any size</option>
+        <option value="1" selected>1%</option>
+        <option value="5">5%</option>
+        <option value="20">20%</option>
+      </select></label>
+    </div>
+    <div class="feed" id="feed"></div>
+  </section>
+
+  <section id="review-section">
+    <h2>Waiting for a person to check</h2>
+    <p class="hint">Changes we did not publish automatically because something about them looks wrong. The published number stays as it was until someone decides.</p>
+    <div class="feed" id="review"></div>
+  </section>
+
+  <section id="dev-section">
+    <h2>Developer activity <span class="chip split_adjustment">Alternative data</span></h2>
+    <p class="hint">Weekly code contributions to each company's main open-source projects on GitHub, a public signal of how active its developer ecosystem is. Collected daily.</p>
+    <div class="controls">
+      <label>Company <select id="devTicker"></select></label>
+      <label>Known on <input type="date" id="devAsOf"></label>
+    </div>
+    <p class="small" id="devNote"></p>
+    <div class="scroll"><table id="dev"></table></div>
+  </section>
+
+  <section id="glossary">
+    <details>
+      <summary>Glossary</summary>
+      <dl>
+        <dt>Revised by the company (restatement)</dt>
+        <dd>The company published a different value for a period it had already reported, for example to correct an error or apply a new accounting rule.</dd>
+        <dt>Stock split</dt>
+        <dd>The company split each share into several (e.g. 4-for-1). Per-share numbers like EPS are restated so all years use the same number of shares. The business itself did not change.</dd>
+        <dt>Corrected by our data team</dt>
+        <dd>A number changed in the data source without a new filing to explain it. We hold such changes back until a person has checked them.</dd>
+        <dt>Annual report (10-K), quarterly report (10-Q)</dt>
+        <dd>The official financial reports US-listed companies file with the SEC.</dd>
+        <dt>Diluted EPS</dt>
+        <dd>Earnings per share, counting shares that could be created from options and convertible securities.</dd>
+        <dt>Alternative data</dt>
+        <dd>Information from outside company reports, here GitHub developer activity. It counts only from the day we collected it: history collected later cannot be used to judge what we knew at the time.</dd>
+        <dt>Calculated Q4</dt>
+        <dd>Companies rarely report the fourth quarter on its own, so we calculate it as the full year minus the first three quarters. This is not done for per-share numbers, where it would be wrong.</dd>
+      </dl>
+    </details>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const get = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+const LABELS = { restatement: "Revised by the company", split_adjustment: "Stock split", manual_correction: "Corrected by our data team", data_revision: "Revised by the source" };
+const FORMS = { "10-K": "Annual report", "10-K/A": "Amended annual report", "10-Q": "Quarterly report", "10-Q/A": "Amended quarterly report", "8-K": "Current report", "DEF 14A": "Proxy statement" };
+const CIK = {};
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function day(iso) {
+  if (!iso) return "";
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+function fmt(v, unit) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (unit === "USD") {
+    const a = Math.abs(v), s = v < 0 ? "-" : "";
+    if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}bn`;
+    if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(1)}m`;
+    return `${s}$${a.toLocaleString()}`;
+  }
+  if (unit === "USD/shares") return `${v < 0 ? "-" : ""}$${Math.abs(v).toFixed(2)}`;
+  if (unit === "shares") return `${(v / 1e6).toLocaleString(undefined, {maximumFractionDigits: 1})}m shares`;
+  return v.toLocaleString();
+}
+function period(r) {
+  if (!r.period_start) return `At ${day(r.period_end)}`;
+  const days = (new Date(r.period_end) - new Date(r.period_start)) / 864e5 + 1;
+  if (days >= 80 && days <= 100) return `Quarter ended ${day(r.period_end)}`;
+  if (days >= 350 && days <= 380) return `Year ended ${day(r.period_end)}`;
+  return `${Math.round(days / 30.4)} months to ${day(r.period_end)}`;
+}
+function filingLink(ticker, accn, form, filed) {
+  if (form && form.startsWith("derived")) return `<span class="small">Calculated: full year minus Q1–Q3</span>`;
+  const text = `${esc(FORMS[form] || form)}, ${day(filed)}`;
+  const cik = CIK[ticker];
+  if (!cik || !accn || accn.startsWith("manual:")) return `<span class="small">${text}</span>`;
+  const url = `https://www.sec.gov/Archives/edgar/data/${cik}/${accn.replaceAll("-", "")}/`;
+  return `<a class="small" href="${url}" target="_blank" rel="noopener">${text} ↗</a>`;
+}
+const chip = (c) => `<span class="chip ${esc(c)}">${esc(LABELS[c] || c)}</span>`;
+
+async function loadStats() {
+  const [health, companies, pending] = await Promise.all([get("/health"), get("/api/companies"), get("/api/corrections?status=pending")]);
+  const run = health.last_run;
+  const facts = companies.reduce((n, c) => n + c.facts, 0);
+  const ok = run && run.status === "succeeded";
+  $("stats").innerHTML = `
+    <div><b>${companies.length}</b>companies</div>
+    <div><b>${facts.toLocaleString()}</b>numbers tracked</div>
+    <div><b>${pending.length}</b>changes waiting for a person to check</div>
+    <div><b class="${ok ? "ok" : ""}">${run ? (ok ? "Up to date" : "Last refresh failed") : "—"}</b>data refreshed ${run ? day(run.finished_at) : "never"}</div>`;
+  for (const c of companies) {
+    CIK[c.ticker] = c.cik;
+    $("ticker").add(new Option(`${c.name} (${c.ticker})`, c.ticker));
+    $("feedTicker").add(new Option(c.name, c.ticker));
+    if (c.has_developer_activity) $("devTicker").add(new Option(c.name, c.ticker));
+  }
+}
+
+async function loadMetrics() {
+  for (const m of await get("/api/metrics")) $("metric").add(new Option(m.label, m.metric));
+}
+
+async function loadCompare() {
+  const t = $("ticker").value, m = $("metric").value, p = $("ptype").value;
+  const before = $("before").value, after = $("after").value;
+  if (!t || !m || !before || !after) return;
+  const base = `/api/companies/${t}/metrics/${m}`;
+  const [a, b, why] = await Promise.all([
+    get(`${base}?as_of=${before}&period_type=${p}`),
+    get(`${base}?as_of=${after}&period_type=${p}`),
+    get(`${base}/compare?before=${before}&after=${after}`),
+  ]);
+  const key = (r) => `${r.period_start}|${r.period_end}`;
+  const known = new Map(a.map((r) => [key(r), r]));
+  const reasons = new Map(why.map((r) => [key(r), r]));
+  const rows = b.slice().reverse().map((r) => {
+    const old = known.get(key(r));
+    const changed = old && old.value !== r.value;
+    const reason = reasons.get(key(r));
+    const main = `<tr class="${changed ? "changed" : ""}">
+      <td>${esc(period(r))}</td>
+      <td class="num">${old ? fmt(old.value, r.unit) : '<span class="empty">not published yet</span>'}</td>
+      <td class="num">${fmt(r.value, r.unit)}</td>
+      <td>${changed && reason ? chip(reason.classification) : filingLink(t, r.source_accn, r.source_form, r.known_from)}</td>
+    </tr>`;
+    // The explanation gets its own full-width row so it stays readable on narrow screens.
+    if (!(changed && reason)) return main;
+    return main + `<tr class="changed explain"><td colspan="4">
+      <div class="headline">${esc(reason.headline)}</div>
+      <div class="guidance">${esc(reason.guidance)}</div>
+      <div>${filingLink(t, reason.source_accn, reason.source_form, reason.known_from)}</div>
+    </td></tr>`;
+  });
+  $("compare").innerHTML = `<thead><tr><th>Period</th><th class="num">Known on ${day(before)}</th><th class="num">Known on ${day(after)}</th><th>Source</th></tr></thead>
+    <tbody>${rows.join("") || '<tr><td colspan="4" class="empty">No numbers for this selection.</td></tr>'}</tbody>`;
+}
+
+async function loadFeed() {
+  const q = new URLSearchParams({ limit: "40", min_abs_pct: $("feedPct").value });
+  if ($("feedTicker").value) q.set("ticker", $("feedTicker").value);
+  if ($("feedType").value) q.set("classification", $("feedType").value);
+  const items = await get(`/api/changes?${q}`);
+  $("feed").innerHTML = items.map((c) => `<div class="card">
+      <div class="meta">${chip(c.classification)}<span class="small">${fmt(c.old_value, c.unit)} → ${fmt(c.new_value, c.unit)} · changed on ${day(c.effective_date)}</span></div>
+      <div class="headline">${esc(c.headline)}</div>
+      <div class="guidance">${esc(c.guidance)}</div>
+      <div>${filingLink(c.ticker, c.new_accn, c.new_form, c.effective_date)}</div>
+    </div>`).join("") || '<p class="empty">No changes match these filters.</p>';
+}
+
+async function loadReview() {
+  // Largest amounts first: they are the easiest to judge and matter most.
+  const items = (await get("/api/corrections?status=pending"))
+    .sort((a, b) => Math.abs(b.current_value) - Math.abs(a.current_value));
+  const shown = items.slice(0, 4);
+  $("review").innerHTML = shown.map((c) => `<div class="card">
+      <div class="meta"><span class="chip restatement">Held for review</span><span class="small">${esc(c.name)} · ${esc(c.label)} · ${esc(period(c))}</span></div>
+      <div class="headline">Published: ${fmt(c.current_value, c.unit)}. The data filed with the ${esc((FORMS[c.form] || c.form).toLowerCase())} of ${day(c.filed)} says ${fmt(c.proposed_value, c.unit)}.</div>
+      <div class="guidance">${esc(c.reason)}</div>
+      <div>${filingLink(c.ticker, c.accn, c.form, c.filed)}</div>
+    </div>`).join("") || '<p class="empty">Nothing is waiting for review.</p>';
+  if (items.length > shown.length) {
+    $("review").insertAdjacentHTML("beforeend", `<p class="small">…and ${items.length - shown.length} more from the same filing(s). Reviewers use <code>pitlake corrections list</code>.</p>`);
+  }
+}
+
+async function loadDev() {
+  const t = $("devTicker").value, asOf = $("devAsOf").value;
+  if (!t) return;
+  const rows = await get(`/api/companies/${t}/developer-activity?as_of=${asOf}`);
+  const repos = [...new Set(rows.map((r) => r.repo))];
+  const weeks = [...new Set(rows.map((r) => r.week_start))].sort().reverse().slice(0, 13);
+  const v = new Map(rows.map((r) => [`${r.repo}|${r.week_start}`, r.commits]));
+  const first = rows.reduce((m, r) => (!m || r.known_from < m ? r.known_from : m), null);
+  $("devNote").textContent = rows.length
+    ? `First collected on ${day(first)}. Everything shown was only known from that day, even weeks that happened earlier.`
+    : `Nothing had been collected by ${day(asOf)}. Collection started later, so a backtest for this date must not use this data.`;
+  $("dev").innerHTML = rows.length ? `<thead><tr><th>Week starting</th>${repos.map((r) => `<th class="num">${esc(r)}</th>`).join("")}</tr></thead>
+    <tbody>${weeks.map((w) => `<tr><td>${day(w)}</td>${repos.map((r) => `<td class="num">${(v.get(`${r}|${w}`) ?? 0).toLocaleString()}</td>`).join("")}</tr>`).join("")}</tbody>` : "";
+}
+
+$("after").value = new Date().toISOString().slice(0, 10);
+$("devAsOf").value = new Date().toISOString().slice(0, 10);
+["devTicker", "devAsOf"].forEach((id) => $(id).addEventListener("change", loadDev));
+["ticker", "metric", "ptype", "before", "after"].forEach((id) => $(id).addEventListener("change", loadCompare));
+["feedTicker", "feedType", "feedPct"].forEach((id) => $(id).addEventListener("change", loadFeed));
+// Views can be shared as links, e.g. ?ticker=NVDA&metric=eps_diluted&before=2024-06-01#review-section
+// `only=<section id>` shows just that section (for embedding a view elsewhere).
+const params = new URLSearchParams(location.search);
+Promise.all([loadStats(), loadMetrics()]).then(async () => {
+  $("ticker").value = params.get("ticker") || "NVDA";
+  $("metric").value = params.get("metric") || "eps_diluted";
+  $("ptype").value = params.get("period") || "annual";
+  $("before").value = params.get("before") || "2024-06-01";
+  if (params.get("after")) $("after").value = params.get("after");
+  $("devTicker").value = params.get("dev") || "NVDA";
+  if (params.get("devAsOf")) $("devAsOf").value = params.get("devAsOf");
+  await Promise.all([loadCompare(), loadFeed(), loadReview(), loadDev()]);
+  const only = params.get("only");
+  if (only) {
+    document.querySelector("header").style.display = params.get("header") ? "" : "none";
+    document.querySelectorAll("main > section").forEach((el) => { el.style.display = el.id === only ? "" : "none"; });
+  } else if (location.hash) {
+    document.querySelector(location.hash)?.scrollIntoView();
+  }
+  document.body.dataset.ready = "1";
+});
+</script>
+</body>
+</html>

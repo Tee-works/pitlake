@@ -1,0 +1,22 @@
+# Companies tracked by pitlake.
+#
+# Source: the ten largest holdings of BIT Global Technology Leaders in BIT Capital's public
+# factsheet "as of 30.09.2026" (share class R-I, ISIN DE000A2N8127):
+#   Amazon 9.6%, IREN 9.2%, Nvidia 8.0%, Micron 6.5%, TSMC 5.1%, Meta Platforms 4.6%,
+#   Microsoft 4.4%, "FT Inter" 4.0%, Hinge Health 4.0%, Silicon Motion 3.9%.
+# "FT Inter" is left out: the factsheet name is truncated and could not be matched to an SEC
+# filer with confidence. All other nine file financial statements with the SEC.
+# Holdings change monthly; refresh this list from the latest factsheet.
+tickers = ["AMZN", "IREN", "NVDA", "MU", "TSM", "META", "MSFT", "HNGE", "SIMO"]
+
+# Short names used in explanations for readers ("Nvidia", not "NVIDIA CORP").
+[names]
+AMZN = "Amazon"
+IREN = "IREN"
+NVDA = "Nvidia"
+MU = "Micron"
+TSM = "TSMC"
+META = "Meta"
+MSFT = "Microsoft"
+HNGE = "Hinge Health"
+SIMO = "Silicon Motion"

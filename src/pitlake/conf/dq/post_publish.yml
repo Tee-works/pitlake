@@ -1,0 +1,57 @@
+# Gate 2 - runs AFTER the write, inside the same run. On any `error` failure every table
+# written by the run is restored to its previous Delta version (write-audit-publish).
+gate: post_publish
+suites:
+  - suite: history_invariants
+    dataset: facts_history
+    checks:
+      - {type: unique, column: version_id}
+      - {type: not_null, column: known_from}
+      - type: in_set
+        column: change_type
+        values: [initial, restatement, manual_correction]
+
+  - suite: exactly_one_current_version_per_fact
+    dataset: dq_open_versions_per_fact
+    checks:
+      - type: in_range
+        column: open_versions
+        min: 1
+        max: 1
+
+  - suite: no_empty_or_negative_intervals
+    dataset: dq_invalid_intervals
+    checks:
+      - type: row_count
+        max: 0
+
+  - suite: no_overlapping_versions
+    dataset: dq_overlapping_versions
+    checks:
+      - type: row_count
+        max: 0
+
+  - suite: every_change_is_explained
+    dataset: change_log
+    checks:
+      - {type: not_null, column: explanation}
+      - {type: unique, column: change_id}
+
+  # Monitoring (warn): every company should have filed within ~4 months (quarterly cadence).
+  # Foreign filers that only file annually (20-F) will show up here; that is intended:
+  # someone should decide whether their data is still good enough.
+  - suite: every_company_is_fresh
+    dataset: dq_days_since_last_filing
+    checks:
+      - type: in_range
+        column: days_since_last_filing
+        max: 120
+        severity: warn
+
+  - suite: developer_activity_is_fresh
+    dataset: dq_days_since_last_collection
+    checks:
+      - type: in_range
+        column: days_since_last_collection
+        max: 3
+        severity: warn
