@@ -11,7 +11,7 @@ jobs:
     # Fails if the SEC changes its API format, before it breaks the morning pipeline.
     runs-on: ubuntu-latest
     env:
-      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +22,7 @@ jobs:
       - name: Contact for the SEC is configured
         run: |
           if [ -z "$SEC_USER_AGENT" ]; then
-            echo "::error::Set the repository variable SEC_USER_AGENT (Settings > Secrets and variables > Actions > Variables), e.g. 'Your Name you@example.com'"
+            echo "::error::Set the repository secret SEC_USER_AGENT (Settings > Secrets and variables > Actions > Secrets), e.g. 'Your Name you@example.com'"
             exit 1
           fi
       - run: pytest -m live -v

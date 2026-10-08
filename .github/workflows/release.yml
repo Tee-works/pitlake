@@ -81,5 +81,5 @@ jobs:
       - run: databricks bundle validate -t "$TARGET"
       - run: >
           databricks bundle deploy -t "$TARGET"
-          --var="sec_user_agent=${{ vars.SEC_USER_AGENT }}"
+          --var="sec_user_agent=${{ secrets.SEC_USER_AGENT }}"
           --var="alert_email=${{ vars.ALERT_EMAIL }}"
