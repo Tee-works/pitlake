@@ -51,7 +51,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build --wheel
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheel
           path: dist/*.whl
