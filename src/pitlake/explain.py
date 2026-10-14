@@ -34,7 +34,8 @@ FORM_NAMES = {
 
 @dataclass(frozen=True)
 class Explanation:
-    classification: str  # restatement | split_adjustment | manual_correction | data_revision
+    # restatement | split_adjustment | rounding | manual_correction | data_revision
+    classification: str
     headline: str
     detail: str
     guidance: str
@@ -60,6 +61,35 @@ def detect_split(old: float, new: float, unit: str) -> int | None:
         if unit.endswith("/shares") and small >= 0.10 and abs(big / r - small) <= _CENT_ROUNDING:
             return r
     return None
+
+
+def _precision(x: float) -> int:
+    """Decimal places a figure is reported to (negative for rounded thousands, millions...)."""
+    for k in range(-9, 7):
+        if abs(round(x, k) - x) <= 1e-9 * max(1.0, abs(x)):
+            return k
+    return 6
+
+
+def is_rounding(old: float, new: float) -> bool:
+    """True when two figures are the same number reported with different rounding,
+    e.g. -10.253 vs -10.25, or -450,198,000 vs -450,200,000."""
+    if old == new or (old > 0) != (new > 0):
+        return False
+    if abs(new - old) / max(abs(old), abs(new)) > 0.005:  # never more than 0.5% apart
+        return False
+    close = lambda a, b: abs(a - b) <= 1e-9 * max(1.0, abs(b))  # noqa: E731
+    # The coarser figure needs at least 3 significant figures: 460,000,000 shares says nothing
+    # about rounding (459m -> 460m can be a real change), -10.25 or -450.2m does.
+    for coarse, fine in ((new, old), (old, new)):
+        if _sig_figs(coarse) >= 3 and close(round(fine, _precision(coarse)), coarse):
+            return True
+    return False
+
+
+def _sig_figs(x: float) -> int:
+    digits = f"{abs(x):.12g}".split("e")[0].replace(".", "").lstrip("0").rstrip("0")
+    return len(digits)
 
 
 def pct_change(old: float, new: float) -> float | None:
@@ -196,6 +226,16 @@ def explain_change(
             f"back until {reviewer} checked it on {human_date(filed)}. Reason: {note}",
             f"Reports built before {human_date(filed)} used {old_s}. Views 'as of' earlier "
             "dates still show the old number.",
+        )
+
+    if is_rounding(old_value, new_value):
+        return Explanation(
+            "rounding",
+            f"{who}'s {metric} was reported as {new_value:,} instead of {old_value:,} ({unit}): "
+            "the same figure with different rounding.",
+            f"{first}, and reported again with different rounding in the {form_name(form)} of "
+            f"{human_date(filed)}.",
+            "No action needed: this is not a revision of the business result.",
         )
 
     split = detect_split(old_value, new_value, unit)

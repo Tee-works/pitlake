@@ -26,6 +26,8 @@ REVIEW_REASONS = {
     "late_arrival": "An older filing arrived late and disagrees with the number we publish.",
     "same_day_conflict": "Two filings published on the same day disagree.",
     "conflict_within_filing": "One filing reports two different values for the same number.",
+    "suspected_scale_error": "The new value is about 100 or 1,000 times the old one, which "
+    "usually means a units or scaling mistake in the data, so we did not publish it.",
 }
 
 
@@ -124,7 +126,8 @@ def create_app(lake_root: Path | None = None) -> FastAPI:
         ticker: str | None = None,
         since: date | None = None,
         classification: str | None = Query(
-            None, pattern="^(restatement|split_adjustment|manual_correction|data_revision)$"
+            None,
+            pattern="^(restatement|split_adjustment|rounding|manual_correction|data_revision)$",
         ),
         min_abs_pct: float = 0.0,
         limit: int = Query(100, le=1000),

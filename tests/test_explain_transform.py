@@ -5,7 +5,13 @@ from datetime import date
 import pytest
 from conftest import companyfacts, fact
 
-from pitlake.explain import describe_period, detect_split, explain_change, format_value
+from pitlake.explain import (
+    describe_period,
+    detect_split,
+    explain_change,
+    format_value,
+    is_rounding,
+)
 from pitlake.transform import flatten_company_facts
 
 
@@ -146,3 +152,19 @@ def test_flatten_keeps_only_curated_concepts_and_types_fields():
     assert ni.fact_key == "ACME|us-gaap|NetIncomeLoss|USD|2023-01-01|2023-12-31"
     assets = next(r for r in rows if r.concept == "Assets")
     assert assets.period_start is None
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        (-10.253, -10.25, True),
+        (-3.1377, -3.14, True),
+        (-450_198_000, -450_200_000, True),
+        (459_000_000, 460_000_000, False),  # 2 significant figures: could be a real change
+        (1.74, 0.17, False),  # a split, not rounding
+        (1_950_000_000, 2_000_000_000, False),  # 2.5% apart: a real change
+        (100.0, 100.0, False),  # no change at all
+    ],
+)
+def test_is_rounding(old, new, expected):
+    assert is_rounding(old, new) is expected

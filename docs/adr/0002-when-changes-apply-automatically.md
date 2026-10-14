@@ -5,7 +5,7 @@ Status: accepted
 ## Context
 Published numbers change for two reasons: a company publishes a correction (a new, dated,
 public filing), or something changes with no document behind it (the source changed silently,
-or our parsing did). Holding every change for review would bury reviewers in ~300 items that
+or our parsing did). Holding every change for review would bury reviewers in ~200 items that
 need no decision; applying everything would let silent errors through.
 
 ## Decision
@@ -13,6 +13,10 @@ A different value in a *newer filing* is applied, flagged in the change log and 
 A different value for a filing we already accepted, an older filing arriving late, or two
 same-day filings that disagree go to a review queue (`corrections`). An approval needs a
 named reviewer and a reason, and takes effect from the review date.
+
+The same applies to changes that look like errors in the source data even when they come
+with a newer filing: a filing whose data mixes up two periods, a half-year reported as its own
+last quarter, or a value about x100 or x1,000 off. These are held too.
 
 ## Consequences
 + Reviewers only see changes that need judgement.

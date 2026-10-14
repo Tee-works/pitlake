@@ -137,7 +137,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--since", type=date.fromisoformat)
     s.add_argument(
         "--classification",
-        choices=["restatement", "split_adjustment", "manual_correction", "data_revision"],
+        choices=[
+            "restatement",
+            "split_adjustment",
+            "rounding",
+            "manual_correction",
+            "data_revision",
+        ],
     )
     s.add_argument("--min-pct", type=float, default=0.0)
     s.add_argument("--limit", type=int, default=20)

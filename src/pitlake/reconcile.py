@@ -19,7 +19,18 @@ Filing's data swaps the values of    Quarantine (``suspected_wrong_period``): a 
 two periods a year apart              the filing's XBRL data, not a restatement. Real case: the
                                       data filed with Amazon's 10-K of 30 Jan 2013 (its printed
                                       table is correct) swapped 2011 and 2012 quarterly figures.
+Any other change that filing makes    Quarantine too: once a filing's data is caught mixing up
+to the same periods                   two periods, none of its figures for them can be trusted
+                                      (Amazon's Q4 net income and EPS were in the same table).
+A longer period gets exactly the     Quarantine (``suspected_wrong_period``): e.g. a half-year
+value of its last quarter            reported as its own Q2 (Nvidia's 10-K of Feb 2018).
+Value jumps by about x100, x1,000     Quarantine (``suspected_scale_error``): usually a units or
+or x1,000,000 (not a stock split)     scaling mistake in the data (real case: IREN's EPS for
+                                      the 6 months to 31 Dec 2023, -0.1502 -> -0.0015).
 ====================================  ===========================================================
+
+Changes that only differ by rounding (-10.253 -> -10.25) are versioned like any other, but
+explained as rounding, not as a revision by the company (see ``explain.is_rounding``).
 
 The rule of thumb: a published value only changes automatically when a newer, dated,
 public document says so. Anything else waits for review.
@@ -44,9 +55,39 @@ def _distinctive(v: float) -> bool:
     return digits >= 1000
 
 
+SCALE_FACTORS = (100, 1_000, 1_000_000)
+_SCALE_TOLERANCE = 0.02
+
+
+def scale_jump(old: float, new: float) -> int | None:
+    """The factor if new is about 100x, 1,000x or 1,000,000x old (or the reverse).
+
+    Tiny per-share values lose precision when rounded (-0.072 / 100 = -0.00072, filed as
+    -0.0007), so the smaller value may also be off by half a unit in its last decimal.
+    """
+    if old == 0 or new == 0 or (old > 0) != (new > 0):
+        return None
+    big, small = max(abs(old), abs(new)), min(abs(old), abs(new))
+    half_unit = 0.5 * 10 ** -_decimals(small)
+    for f in SCALE_FACTORS:
+        if abs(big / f - small) / small <= _SCALE_TOLERANCE or abs(big / f - small) <= half_unit:
+            return f
+    return None
+
+
+def _decimals(x: float) -> int:
+    for k in range(0, 7):
+        if abs(round(x, k) - x) <= 1e-12:
+            return k
+    return 6
+
+
+def _length(o: Observation) -> int | None:
+    return None if o.period_start is None else round((o.period_end - o.period_start).days / 7)
+
+
 def _series(o: Observation) -> tuple:
-    length = None if o.period_start is None else round((o.period_end - o.period_start).days / 7)
-    return (o.ticker, o.taxonomy, o.concept, o.unit, length)
+    return (o.ticker, o.taxonomy, o.concept, o.unit, _length(o))
 
 
 def _explain(o: Observation, old: FactVersion):
@@ -166,6 +207,27 @@ def reconcile(
     for o in observations:
         by_series[_series(o)][o.period_end].append((o.value, o.filed, o.accn))
 
+    # Values by (company, concept, unit, period end) and period length, to recognise a filing
+    # that puts a quarter's figure on the half-year or year ending the same day.
+    by_end: dict[tuple, list] = defaultdict(list)
+    for o in observations:
+        if o.period_start is not None:
+            by_end[(o.ticker, o.taxonomy, o.concept, o.unit, o.period_end)].append(
+                (_length(o), o.value, o.filed)
+            )
+
+    def shorter_period_value(o: Observation) -> int | None:
+        """Weeks of the shorter period, ending the same day, whose value (already published)
+        this filing puts on o's longer period. A half-year equal to its own last quarter would
+        mean a zero first quarter: a mis-tag, not a restatement (real case: Nvidia's 10-K of
+        Feb 2018)."""
+        if o.period_start is None or o.unit in ("shares", "commits"):
+            return None  # weighted-average share counts don't add up across quarters
+        for length, value, filed in by_end[(o.ticker, o.taxonomy, o.concept, o.unit, o.period_end)]:
+            if filed <= o.filed and length < _length(o) and value == o.value and value != 0:
+                return length
+        return None
+
     def wrong_period_twin(o: Observation, current_value: float | None):
         """The period a year apart that this filing mixed up with o's period, if any.
 
@@ -218,6 +280,31 @@ def reconcile(
             continue
         by_fact[fact_key].append(o)
 
+    # A filing caught mixing up two periods taints all of its figures for those periods:
+    # (ticker, filing, period length, period end). Found before versioning, because the
+    # evidence may sit in another concept (revenue) than the change being decided (net income).
+    tainted: set[tuple] = set()
+    for fact_key, obs in by_fact.items():
+        prior = current[fact_key].value if fact_key in current else None
+        for o in sorted(obs, key=lambda o: (o.filed, o.accn)):
+            if prior is not None and o.value == prior:
+                continue
+            twin = wrong_period_twin(o, prior)
+            if twin is None:
+                prior = o.value
+                continue
+            for end in (o.period_end, twin):
+                tainted.add((o.ticker, o.accn, _length(o), end))
+
+    def in_tainted_filing(o: Observation) -> bool:
+        return (o.ticker, o.accn, _length(o), o.period_end) in tainted
+
+    tainted_detail = (
+        "The data filed with the {form} of {filed} put another period's figures on the period "
+        "ending {end} (see the other held values from this filing), so none of its figures for "
+        "this period can be trusted."
+    )
+
     # 2. Walk each fact's new filings in publication order and version them.
     for fact_key, obs in by_fact.items():
         obs.sort(key=lambda o: (o.filed, o.accn))
@@ -231,6 +318,13 @@ def reconcile(
                     "the period ending "
                     f"{o.period_end}, the value previously reported for {twin}, while giving "
                     f"{twin} a different value. This is a tagging error in the filing's data.",
+                    None,
+                )
+            elif cur is None and in_tainted_filing(o):
+                quarantine(
+                    o,
+                    "suspected_wrong_period",
+                    tainted_detail.format(form=o.form, filed=o.filed, end=o.period_end),
                     None,
                 )
             elif cur is None:
@@ -261,6 +355,32 @@ def reconcile(
                     f"the period ending {o.period_end} (previously reported for {twin}) and "
                     f"{cur.value:,} for {twin}. This is a tagging error in the filing's data, "
                     "not a restatement.",
+                    cur.value,
+                )
+            elif (weeks := shorter_period_value(o)) is not None:
+                quarantine(
+                    o,
+                    "suspected_wrong_period",
+                    f"The data filed with the {o.form} of {o.filed} reports {o.value:,} for the "
+                    f"{_length(o)}-week period ending {o.period_end}, exactly its value for the "
+                    f"{weeks}-week period ending the same day. That would mean nothing happened "
+                    "in the rest of the period: a tagging error, not a restatement.",
+                    cur.value,
+                )
+            elif in_tainted_filing(o):
+                quarantine(
+                    o,
+                    "suspected_wrong_period",
+                    tainted_detail.format(form=o.form, filed=o.filed, end=o.period_end),
+                    cur.value,
+                )
+            elif o.unit != "commits" and (factor := scale_jump(cur.value, o.value)):
+                quarantine(
+                    o,
+                    "suspected_scale_error",
+                    f"The {o.form} of {o.filed} reports {o.value:,} where {cur.value:,} was "
+                    f"published: about {factor:,} times different. This is usually a units or "
+                    "scaling mistake in the data, not a restatement.",
                     cur.value,
                 )
             elif o.filed == cur.known_from:

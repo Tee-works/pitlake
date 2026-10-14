@@ -124,7 +124,8 @@ def test_amazon_mis_tagged_filing_is_held_for_review(tmp_path):
     rec = pipeline.run("sample", ["AMZN"], lake_root=root)
     con = Lake(root).connect()
     pending = query.corrections(con)
-    assert rec.quarantined == len(pending) == 24
+    # 32: revenue, net income, EPS and share counts from the same quarterly table
+    assert rec.quarantined == len(pending) == 32
     assert {c["reason_code"] for c in pending} == {"suspected_wrong_period"}
     assert {c["filed"] for c in pending} == {date(2013, 1, 30)}
     q1_2011 = next(
@@ -267,3 +268,27 @@ def test_stale_company_warns_but_does_not_block(lake_root, write_bronze):
         "SELECT suite, status, severity FROM dq_results WHERE suite = 'every_company_is_fresh'"
     ).fetchall()
     assert (suite, status, severity) == ("every_company_is_fresh", "fail", "warn")
+
+
+def test_nvidia_half_year_mis_tag_and_share_scale_errors_are_held(nvda_lake):
+    """Nvidia's 10-K of Feb 2018 put Q2 figures on the half-year; some 2010-2012 filings
+    report share counts in thousands without saying so."""
+    con = nvda_lake.connect()
+    held = query.corrections(con)
+    half_year = {c["concept"] for c in held if c["reason_code"] == "suspected_wrong_period"}
+    assert half_year == {"Revenues", "NetIncomeLoss", "EarningsPerShareDiluted"}
+    scale = [c for c in held if c["reason_code"] == "suspected_scale_error"]
+    assert scale and {c["concept"] for c in scale} == {
+        "WeightedAverageNumberOfDilutedSharesOutstanding"
+    }
+    # the half-year never shows a fake drop and recovery
+    h1 = query.fact_history(con, "NVDA", "revenue", date(2017, 7, 30), date(2017, 1, 30))
+    assert [h["value"] for h in h1] == [4_167_000_000]
+
+
+def test_iren_scale_errors_are_held(tmp_path):
+    root = tmp_path / "lake"
+    pipeline.run("sample", ["IREN"], lake_root=root)
+    held = query.corrections(Lake(root).connect())
+    assert {c["reason_code"] for c in held} == {"suspected_scale_error"}
+    assert any(c["current_value"] == -0.1502 and c["proposed_value"] == -0.0015 for c in held)

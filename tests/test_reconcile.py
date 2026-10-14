@@ -256,3 +256,123 @@ def test_round_numbers_are_not_treated_as_evidence_of_a_mix_up():
     )
     assert [c.classification for c in res.changes] == ["restatement"]
     assert not res.corrections
+
+
+def test_other_changes_from_a_mis_tagged_filing_to_the_same_periods_are_held():
+    """Amazon: the same faulty 10-K also moved Q4 net income ($177m -> $97m). $177m is too
+    round to be evidence on its own, but the filing already swapped revenue for those periods."""
+    ni = dict(concept="NetIncomeLoss")
+    res = run(
+        [
+            obs(17_431e6, "2012-02-01", "A", **Q4_2011),
+            obs(177e6, "2012-02-01", "A", **{**Q4_2011, **ni}),
+            # the faulty 10-K: revenue swapped (caught by the swap rule) ...
+            obs(21_268e6, "2013-01-30", "B", **Q4_2011),
+            obs(17_431e6, "2013-01-30", "B", **Q4_2012),
+            # ... and net income moved for the same periods (round numbers, no direct evidence)
+            obs(97e6, "2013-01-30", "B", **{**Q4_2011, **ni}),
+            obs(177e6, "2013-01-30", "B", **{**Q4_2012, **ni}),
+        ]
+    )
+    held = {(c.concept, c.period_end.year) for c in res.corrections}
+    assert held == {
+        ("SalesRevenueNet", 2011),
+        ("SalesRevenueNet", 2012),
+        ("NetIncomeLoss", 2011),
+        ("NetIncomeLoss", 2012),
+    }
+    assert not res.changes, "nothing from the faulty filing is published as a revision"
+
+
+def test_a_clean_filing_for_other_periods_is_not_affected_by_the_taint():
+    fy_2012 = dict(start="2012-01-01", end="2012-12-31", concept="SalesRevenueNet")
+    res = run(
+        [
+            obs(17_431e6, "2012-02-01", "A", **Q4_2011),
+            obs(21_268e6, "2013-01-30", "B", **Q4_2011),
+            obs(17_431e6, "2013-01-30", "B", **Q4_2012),
+            obs(61_093e6, "2013-01-30", "B", **fy_2012),  # full year: a different period length
+        ]
+    )
+    assert {v.period_end.year for v in res.new_versions if v.period_start.month == 1} == {2012}
+
+
+def test_value_that_jumps_by_about_100x_is_held_as_a_scale_error():
+    """Real case: IREN's diluted EPS for the 6 months to 31 Dec 2023, -0.1502 -> -0.0015."""
+    eps = dict(
+        start="2023-07-01",
+        end="2023-12-31",
+        concept="DilutedEarningsLossPerShare",
+        unit="USD/shares",
+    )
+    res = run([obs(-0.1502, "2024-02-15", "A", **eps), obs(-0.0015, "2025-02-12", "B", **eps)])
+    [c] = res.corrections
+    assert c.reason_code == "suspected_scale_error"
+    assert "about 100 times" in c.detail
+    assert not res.changes
+
+
+def test_a_10_for_1_split_is_not_a_scale_error():
+    eps = dict(concept="EarningsPerShareDiluted", unit="USD/shares")
+    res = run([obs(1.74, "2023-02-24", "A", **eps), obs(0.17, "2025-02-26", "B", **eps)])
+    assert [c.classification for c in res.changes] == ["split_adjustment"]
+
+
+def test_rounding_only_changes_are_labelled_as_rounding():
+    """Real cases: IREN EPS -10.253 -> -10.25; Hinge Health equity -450,198,000 -> -450,200,000."""
+    eps = dict(concept="DilutedEarningsLossPerShare", unit="USD/shares")
+    res = run([obs(-10.253, "2022-09-13", "A", **eps), obs(-10.25, "2024-08-28", "B", **eps)])
+    [change] = res.changes
+    assert change.classification == "rounding"
+    assert "-10.25 instead of -10.253" in change.headline
+    assert change.guidance.startswith("No action needed")
+
+
+def test_a_real_change_that_happens_to_look_round_is_not_rounding():
+    res = run([obs(1_950e6, "2024-02-01", "A"), obs(2_000e6, "2025-02-01", "B")])
+    assert [c.classification for c in res.changes] == ["restatement"]
+
+
+def test_tiny_per_share_values_still_count_as_a_scale_error_despite_rounding():
+    """IREN: -0.072 -> -0.0007 is x102.9 only because -0.00072 was rounded to 4 decimals."""
+    eps = dict(
+        start="2023-10-01",
+        end="2023-12-31",
+        concept="DilutedEarningsLossPerShare",
+        unit="USD/shares",
+    )
+    res = run([obs(-0.072, "2024-02-15", "A", **eps), obs(-0.0007, "2025-02-12", "B", **eps)])
+    assert [c.reason_code for c in res.corrections] == ["suspected_scale_error"]
+
+
+def test_half_year_reported_as_its_own_last_quarter_is_held():
+    """Nvidia's 10-K of Feb 2018 put Q2 revenue ($2.23bn) on the half-year ending the same day."""
+    h1 = dict(start="2017-01-30", end="2017-07-30", concept="Revenues")
+    q2 = dict(start="2017-05-01", end="2017-07-30", concept="Revenues")
+    res = run(
+        [
+            obs(4_167e6, "2017-08-23", "A", **h1),
+            obs(2_230e6, "2017-08-23", "A", **q2),
+            obs(2_230e6, "2018-02-28", "B", **h1),  # wrong: the quarter's value on the half-year
+            obs(4_167e6, "2018-08-16", "C", **h1),  # later filings are right again
+        ]
+    )
+    assert [c.reason_code for c in res.corrections] == ["suspected_wrong_period"]
+    assert not res.changes, "the half-year never shows a fake drop and recovery"
+
+
+def test_share_counts_ending_the_same_day_can_legitimately_match():
+    """A 9-month weighted-average share count can equal the quarter's: shares don't add up.
+    Real case: Nvidia's 10:1 split restatement of 24.94bn shares must not be held."""
+    shares = dict(concept="WeightedAverageNumberOfDilutedSharesOutstanding", unit="shares")
+    nine_months = dict(start="2023-01-30", end="2023-10-29", **shares)
+    q3 = dict(start="2023-07-31", end="2023-10-29", **shares)
+    res = run(
+        [
+            obs(2_494e6, "2023-11-21", "A", **nine_months),
+            obs(24_940e6, "2024-11-20", "B", **q3),
+            obs(24_940e6, "2024-11-20", "B", **nine_months),
+        ]
+    )
+    assert not res.corrections
+    assert [c.classification for c in res.changes] == ["split_adjustment"]

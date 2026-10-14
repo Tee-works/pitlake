@@ -13,12 +13,16 @@ Capital's public factsheet as of 30 Sep 2026): Amazon, IREN, Nvidia, Micron, TSM
 Microsoft, Hinge Health and Silicon Motion. That covers US GAAP and IFRS filers, including
 TSMC in Taiwan dollars. With no manual input, the sample shows:
 
-* **240 changes to published numbers**, explained: 198 revisions by companies and 42
-  stock-split adjustments (Nvidia 4:1 and 10:1, Amazon 20:1).
-* **24 values held for review**: the machine-readable (XBRL) data filed with Amazon's 10-K
-  of 30 Jan 2013 tagged its 2011 and 2012 quarterly figures to the wrong years. The report's
-  own table is correct, but the data that models ingest was not. A "latest value" dataset
-  would have published it, and still shows a wrong Q4 2011 revenue figure today.
+* **212 changes to published numbers**, explained: 121 revisions by companies, 42
+  stock-split adjustments (Nvidia 4:1 and 10:1, Amazon 20:1) and 49 that only changed the
+  rounding.
+* **52 values held for review**, all errors in the companies' machine-readable (XBRL) data:
+  * **Amazon (32):** the data filed with the 10-K of 30 Jan 2013 put its 2011 and 2012
+    quarterly figures on the wrong years. The report's own table is correct, but the data
+    that models ingest was not; a "latest value" dataset still shows a wrong Q4 2011 revenue.
+  * **Nvidia (14):** the 10-K of Feb 2018 put Q2 figures on the half-year ending the same day,
+    and some 2010–2012 filings report share counts in thousands without saying so.
+  * **IREN (6):** EPS values off by about x100.
 * **2 freshness warnings**: TSMC and Silicon Motion have not filed machine-readable
   financials for months, a coverage gap a person should know about.
 
@@ -165,6 +169,10 @@ document says so, and the change looks plausible.** Everything else waits for re
 | Later document, same value | Confirmation: recorded, no new version |
 | Later document, different value | **Restatement**: close the old version at the filing date, publish the new one, write an explanation |
 | Filing **swaps two periods' values** (a year apart) | **Hold for review** (`suspected_wrong_period`): a tagging error, not a restatement. Real case: the XBRL data of Amazon's 10-K, 30 Jan 2013 |
+| Any other change that filing makes to the same periods | **Hold for review**: once a filing is caught mixing up two periods, none of its figures for them are trusted |
+| A longer period gets exactly its last quarter's value | **Hold for review** (`suspected_wrong_period`): e.g. a half-year reported as its own Q2 (Nvidia's 10-K, Feb 2018) |
+| Value jumps by about x100, x1,000 or x1,000,000 (not a split) | **Hold for review** (`suspected_scale_error`): usually a units mistake (Nvidia share counts in thousands; IREN EPS) |
+| Same figure, different rounding (−10.253 → −10.25) | Versioned, but explained as **rounding**, not as a revision |
 | Older document than the current version, different value | Hold for review (`late_arrival`) |
 | Two documents on the same day disagree | Hold for review (`same_day_conflict`) |
 
@@ -202,12 +210,14 @@ gates catch each one and the writes are rolled back.
   date; for alternative data it is the day we collected it, never the week it describes.
 * **Documented restatements apply automatically; suspicious changes do not.** A restatement
   in a filing is the company's official statement, so it is applied, flagged and explained.
-  Holding all ~240 for review would bury reviewers. Changes with no new document, or that
+  Holding all ~200 for review would bury reviewers. Changes with no new document, or that
   look like a filer's tagging error, need a human.
 * **Tagging errors are detected conservatively.** A filing is flagged only if it swaps
   values between periods a year apart, or moves a *distinctive* number (at least 4
   significant figures) to the other period. Round numbers like 460,000,000 shares can
-  match by coincidence and are not treated as evidence.
+  match by coincidence and are not treated as evidence on their own; but once a filing is
+  caught, all its figures for those periods are held. Share counts are excluded from the
+  quarter-on-half-year rule, because weighted-average shares don't add up across quarters.
 * **Reporting currency only.** Foreign filers add USD "convenience translations" at a single
   exchange rate; those are not the company's figures and are dropped.
 * **Delta + DuckDB, not Postgres.** The target platform is a lakehouse (Databricks), so the
@@ -280,6 +290,11 @@ repo. Things the loop caught along the way:
   counts matching by coincidence), so it was narrowed to the swap pattern and distinctive
   numbers, with tests for both. Reading the 10-K itself then showed its own table is correct: only
   the machine-readable tags were wrong, so the wording everywhere now says so.
+* **Reviewing the change feed as an analyst would** found what the first rules missed:
+  Amazon's Q4 net income from the same faulty filing still listed as a "revision", rounding
+  noise like "−$10.25 to −$10.25", and x100 / x1,000 jumps (IREN EPS, Nvidia share counts)
+  labelled as revisions. Three more rules followed, each with a test on the real case, and
+  two of them were narrowed again after their first run flagged legitimate changes.
 * **A wrong split label:** Nvidia's EPS going from $1.74 to $0.17 was labelled a "90%
   revision". EPS is filed in cents ($0.174 became $0.17), so split detection now allows for
   cent rounding above $0.10, where it can still tell the difference.
@@ -300,11 +315,11 @@ repo. Things the loop caught along the way:
 
 | Layer | What it proves |
 |---|---|
-| [`test_reconcile.py`](tests/test_reconcile.py) | every versioning rule, including swapped periods and alternative-data revisions |
+| [`test_reconcile.py`](tests/test_reconcile.py) | every versioning rule on real cases: swapped periods, a quarter on the half-year, x100 scale errors, rounding, alternative-data revisions, and the false alarms each rule must not raise |
 | [`test_properties.py`](tests/test_properties.py) | Hypothesis generates ~1,600 random filing histories: always one current version, no gaps or overlaps, order-independent, incremental runs == one big run, re-runs change nothing |
 | [`test_explain_transform.py`](tests/test_explain_transform.py) | the exact wording analysts see, split direction, currencies, IFRS parsing |
 | [`test_quality.py`](tests/test_quality.py) | each data-quality check fails on a crafted bad batch, per source |
-| [`test_pipeline_integration.py`](tests/test_pipeline_integration.py) | real Delta tables + real sample: Nvidia's split history, TSMC in TWD, Amazon's tagging error held back, backfilled GitHub history invisible before collection, rollback on two injected bugs, review flow |
+| [`test_pipeline_integration.py`](tests/test_pipeline_integration.py) | real Delta tables + real sample: Nvidia's split history, TSMC in TWD, the Amazon, Nvidia and IREN source errors held back, backfilled GitHub history invisible before collection, rollback on two injected bugs, review flow |
 | [`test_research.py`](tests/test_research.py) | the study finds Nvidia's -55% vs -96% |
 | [`test_github.py`](tests/test_github.py), [`test_api.py`](tests/test_api.py), [`test_extract_cli.py`](tests/test_extract_cli.py), [`test_notify.py`](tests/test_notify.py) | GitHub client (mocked), API contract, mocked SEC client, CLI, alerting |
 | [`test_dag.py`](tests/test_dag.py) | DAG structure and a full `airflow dags test` run in real Airflow |

@@ -74,11 +74,16 @@ ORDER BY ticker, period_end
 """
 
 SOURCE_ERRORS_SQL = """
-SELECT ticker, form, filed, accn, count(*) AS values_held, min(period_end) AS first_period,
-       max(period_end) AS last_period
-FROM corrections WHERE reason_code = 'suspected_wrong_period'
-GROUP BY ALL ORDER BY filed
+SELECT ticker, reason_code, count(DISTINCT accn) AS filings, count(*) AS values_held,
+       min(period_end) AS first_period, max(period_end) AS last_period, min(filed) AS first_filed
+FROM corrections WHERE reason_code IN ('suspected_wrong_period', 'suspected_scale_error')
+GROUP BY ALL ORDER BY ticker, reason_code
 """
+
+ERROR_KIND = {
+    "suspected_wrong_period": "figures put on the wrong period",
+    "suspected_scale_error": "values off by x100 or x1,000 (units)",
+}
 
 BACKFILL_SQL = """
 SELECT ticker, concept AS repo, count(*) AS weeks,
@@ -242,16 +247,18 @@ def render_markdown(con: duckdb.DuckDBPyConnection, as_of: date) -> str:
         "## 3. Errors in the source itself",
         "",
         "Some changes are not revisions at all but mistakes in a filing's machine-readable "
-        "(XBRL) data, which is what data feeds and models ingest. pitlake holds back a filing "
-        "whose data puts one period's numbers on another period (it swaps values between "
-        "periods a year apart) instead of publishing it as a restatement:",
+        "(XBRL) data, which is what data feeds and models ingest. pitlake holds these for a "
+        "person instead of publishing them as restatements: figures put on the wrong period "
+        "(two years swapped, or a quarter's figure on the half-year ending the same day), and "
+        "values off by about x100 or x1,000 (a units mistake):",
         "",
         _table(
-            ["Company", "Filing", "Values held for review", "Periods affected"],
+            ["Company", "Problem", "Filings", "Values held", "Periods affected"],
             [
                 [
                     _name(r["ticker"]),
-                    f"{r['form']} of {human_date(r['filed'])}",
+                    ERROR_KIND[r["reason_code"]],
+                    str(r["filings"]),
                     str(r["values_held"]),
                     f"{human_date(r['first_period'])} to {human_date(r['last_period'])}",
                 ]
@@ -262,6 +269,8 @@ def render_markdown(con: duckdb.DuckDBPyConnection, as_of: date) -> str:
         else "None found.",
         "",
         "In Amazon's case the 10-K's own table is correct; only the tagged data is wrong. "
+        "Once a filing is caught mixing up two periods, all of its figures for those periods "
+        "are held, including round ones that would not be evidence on their own. "
         "A dataset that simply keeps the latest value would have published these as "
         "restatements, and for periods no later filing re-reported, it still shows the wrong "
         "numbers today.",

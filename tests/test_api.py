@@ -69,9 +69,12 @@ def test_developer_activity(client):
     assert client.get("/api/companies/NVDA/developer-activity?as_of=2020-01-01").json() == []
 
 
-def test_review_queue_shows_amazon_tagging_error(client):
+def test_review_queue_shows_the_source_errors(client):
     pending = client.get("/api/corrections").json()
-    assert pending and {c["reason_code"] for c in pending} == {"suspected_wrong_period"}
+    reasons = {(c["ticker"], c["reason_code"]) for c in pending}
+    assert ("AMZN", "suspected_wrong_period") in reasons  # the 2013 10-K data
+    assert ("NVDA", "suspected_scale_error") in reasons  # share counts in thousands
+    assert all(c["reason"] for c in pending), "every held change has a plain-English reason"
 
 
 def test_analyst_page_is_served(client):

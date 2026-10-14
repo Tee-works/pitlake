@@ -107,6 +107,7 @@
         <option value="split_adjustment">Stock split</option>
         <option value="manual_correction">Corrected by our data team</option>
         <option value="data_revision">Alternative data revised</option>
+        <option value="rounding">Rounding only</option>
       </select></label>
       <label>Only changes larger than <select id="feedPct">
         <option value="0">Any size</option>
@@ -161,7 +162,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const get = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
-const LABELS = { restatement: "Revised by the company", split_adjustment: "Stock split", manual_correction: "Corrected by our data team", data_revision: "Revised by the source" };
+const LABELS = { restatement: "Revised by the company", split_adjustment: "Stock split", rounding: "Rounding only", manual_correction: "Corrected by our data team", data_revision: "Revised by the source" };
 const FORMS = { "10-K": "Annual report", "10-K/A": "Amended annual report", "10-Q": "Quarterly report", "10-Q/A": "Amended quarterly report", "8-K": "Current report", "DEF 14A": "Proxy statement" };
 const CIK = {};
 
