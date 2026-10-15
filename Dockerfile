@@ -1,11 +1,11 @@
 # One image for both the pipeline (`pitlake ingest`) and the API (`pitlake serve`).
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir build && python -m build --wheel --outdir /dist
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PITLAKE_SAMPLE_DIR=/app/data/sample \
